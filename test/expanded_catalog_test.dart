@@ -22,7 +22,7 @@ void main() {
   test('offline catalogs have the requested content counts', () {
     expect(shortcutsData, hasLength(100));
     expect(mobileTricksData, hasLength(80));
-    expect(cmdData, hasLength(126));
+    expect(cmdData, hasLength(134));
     expect(scriptsData, hasLength(63));
     expect(knowledgeBaseData, hasLength(45));
     expect(
@@ -82,6 +82,30 @@ void main() {
       cmdData.any((command) => command['cmd'] == 'slmgr.vbs /ato'),
       isTrue,
     );
+  });
+
+  test('CMD catalog includes all live ASCII animations with a time limit', () {
+    final animations = cmdData
+        .where((command) => command['category'] == 'ASCII Animations')
+        .toList();
+    expect(animations, hasLength(8));
+    expect(
+      animations.map((command) => command['cmd']),
+      containsAll([
+        for (final name in [
+          'parrot',
+          'earth',
+          'donut',
+          'nyan',
+          'forrest',
+          'clock',
+          'batman',
+          'can-you-hear-me',
+        ])
+          'curl.exe --no-buffer --max-time 30 https://ascii.live/$name',
+      ]),
+    );
+    expect(animations.every((command) => command['risk'] == 'Safe'), isTrue);
   });
 
   testWidgets('mobile navigation opens the tools and report form', (

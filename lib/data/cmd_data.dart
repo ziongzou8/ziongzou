@@ -11,6 +11,7 @@ const cmdCategories = <String>[
   'Power',
   'Advanced',
   'WMIC',
+  'ASCII Animations',
 ];
 
 final cmdData = <Map<String, String>>[

@@ -53,6 +53,7 @@ const commandCategories = <String>[
   'Advanced',
   'Activation',
   'Software',
+  'ASCII Animations',
 ];
 
 final _commandGroups = <_CommandGroup>[
@@ -615,6 +616,54 @@ final _commandGroups = <_CommandGroup>[
       ),
     ],
   ),
+  _CommandGroup(
+    category: 'ASCII Animations',
+    example: 'Animated ASCII frames stream in Command Prompt for 30 seconds.',
+    useCaseSw:
+        'Tazama uhuishaji wa ASCII unaotiririshwa kutoka ascii.live. Muunganisho unakoma wenyewe baada ya sekunde 30.',
+    entries: const [
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/parrot',
+        'Show the live ASCII parrot animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/earth',
+        'Show the live ASCII Earth animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/donut',
+        'Show the live ASCII donut animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/nyan',
+        'Show the live ASCII Nyan Cat animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/forrest',
+        'Show the live ASCII forest animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/clock',
+        'Show the live ASCII clock animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/batman',
+        'Show the live ASCII Batman animation',
+        CommandRisk.safe
+      ),
+      (
+        'curl.exe --no-buffer --max-time 30 https://ascii.live/can-you-hear-me',
+        'Show the live ASCII signal animation',
+        CommandRisk.safe
+      ),
+    ],
+  ),
 ];
 
 final commandsData = <CommandEntry>[
@@ -649,6 +698,8 @@ String _swahiliCommandDescription(String category) {
     'Activation' => 'Tumia amri hii kwa Windows yenye leseni halali pekee.',
     'Software' =>
       'Kagua mchapishaji na kifurushi cha programu kabla ya kusakinisha.',
+    'ASCII Animations' =>
+      'Tazama uhuishaji wa ASCII kwa kutumia muunganisho wa intaneti.',
     _ => 'Tumia amri hii kwa uchunguzi wa kina wa mfumo.',
   };
 }
