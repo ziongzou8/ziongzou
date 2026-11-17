@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -8,10 +10,49 @@ import 'package:network_info_plus/network_info_plus.dart';
 import '../../core/theme.dart';
 import '../../core/toolkit_utils.dart';
 
+typedef NetworkSpeedTestRunner = Future<NetworkSpeedTestResult> Function();
+
+class NetworkSpeedTestResult {
+  const NetworkSpeedTestResult({
+    required this.latencyMilliseconds,
+    required this.downloadMegabitsPerSecond,
+    required this.uploadMegabitsPerSecond,
+    required this.downloadBytes,
+    required this.uploadBytes,
+    this.isp,
+    this.ispLookupError,
+  });
+
+  final double latencyMilliseconds;
+  final double downloadMegabitsPerSecond;
+  final double uploadMegabitsPerSecond;
+  final int downloadBytes;
+  final int uploadBytes;
+  final String? isp;
+  final String? ispLookupError;
+
+  String get displayText => 'Speed test via Cloudflare\n'
+      'Internet ISP (estimated from public IP): '
+      '${isp ?? 'Unavailable'}'
+      '${ispLookupError == null ? '' : ' (lookup failed: $ispLookupError)'}\n'
+      'HTTP latency (3-sample average): '
+      '${latencyMilliseconds.toStringAsFixed(1)} ms\n'
+      'Download: ${downloadMegabitsPerSecond.toStringAsFixed(1)} Mbps\n'
+      'Upload: ${uploadMegabitsPerSecond.toStringAsFixed(1)} Mbps\n'
+      'Data transferred: '
+      '${(downloadBytes / 1000000).toStringAsFixed(1)} MB down, '
+      '${(uploadBytes / 1000000).toStringAsFixed(1)} MB up';
+}
+
 class NetworkDoctorPage extends StatefulWidget {
-  const NetworkDoctorPage({super.key, this.active = true});
+  const NetworkDoctorPage({
+    super.key,
+    this.active = true,
+    this.speedTestRunner,
+  });
 
   final bool active;
+  final NetworkSpeedTestRunner? speedTestRunner;
 
   @override
   State<NetworkDoctorPage> createState() => _NetworkDoctorPageState();
@@ -341,8 +382,10 @@ class _NetworkDoctorPageState extends State<NetworkDoctorPage> {
           ),
           _DiagnosticButton(
             title: 'Speed test',
-            command: 'https://fast.com',
-            onPressed: () => copyText(context, 'https://fast.com'),
+            command:
+                'In-app Cloudflare test; transfers about 6 MB and shares your public IP.',
+            actionKey: const ValueKey('speed-test-button'),
+            onPressed: _busy ? null : _runSpeedTest,
           ),
           const SizedBox(height: 8),
         ],
@@ -453,6 +496,219 @@ class _NetworkDoctorPageState extends State<NetworkDoctorPage> {
     }
   }
 
+  Future<void> _runSpeedTest() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _output
+        ..clear()
+        ..write(
+          'In-app speed test via Cloudflare\n'
+          'Measuring HTTP latency, download, and upload…',
+        );
+    });
+
+    try {
+      final result = await (widget.speedTestRunner ?? _measureSpeedTest)();
+      if (!mounted) return;
+      setState(() {
+        _output
+          ..clear()
+          ..write(result.displayText);
+      });
+    } on IOException catch (error) {
+      if (mounted) {
+        setState(() {
+          _output
+            ..clear()
+            ..write('In-app speed test failed: $error');
+        });
+      }
+    } on TimeoutException {
+      if (mounted) {
+        setState(() {
+          _output
+            ..clear()
+            ..write(
+                'In-app speed test timed out. Try again when the network is stable.');
+        });
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() {
+          _output
+            ..clear()
+            ..write('In-app speed test failed: ${error.message}');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      } else {
+        _busy = false;
+      }
+    }
+  }
+
+  Future<NetworkSpeedTestResult> _measureSpeedTest() async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..idleTimeout = const Duration(seconds: 12);
+    try {
+      final ispFuture = _lookupIspResult(client);
+      final result = await _measureSpeedTestWith(client)
+          .timeout(const Duration(seconds: 60));
+      final ispResult = await ispFuture;
+      return NetworkSpeedTestResult(
+        latencyMilliseconds: result.latencyMilliseconds,
+        downloadMegabitsPerSecond: result.downloadMegabitsPerSecond,
+        uploadMegabitsPerSecond: result.uploadMegabitsPerSecond,
+        downloadBytes: result.downloadBytes,
+        uploadBytes: result.uploadBytes,
+        isp: ispResult.isp,
+        ispLookupError: ispResult.error,
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _lookupIspWith(HttpClient client) async {
+    const timeout = Duration(seconds: 8);
+    final request =
+        await client.getUrl(Uri.https('ipwho.is', '/')).timeout(timeout);
+    final response = await request.close().timeout(timeout);
+    if (response.statusCode < HttpStatus.ok ||
+        response.statusCode >= HttpStatus.multipleChoices) {
+      throw HttpException(
+        'ISP lookup returned HTTP ${response.statusCode}.',
+      );
+    }
+    final payload = jsonDecode(
+        await response.transform(utf8.decoder).join().timeout(timeout));
+    if (payload is! Map<String, dynamic> || payload['success'] == false) {
+      throw const FormatException('The ISP lookup returned invalid data.');
+    }
+    final connection = payload['connection'];
+    if (connection is! Map<String, dynamic>) {
+      throw const FormatException('ISP information was not included.');
+    }
+    final isp = connection['isp'];
+    if (isp is! String || isp.trim().isEmpty) {
+      throw const FormatException('ISP information was not included.');
+    }
+    return isp.trim();
+  }
+
+  Future<({String? isp, String? error})> _lookupIspResult(
+    HttpClient client,
+  ) async {
+    try {
+      return (isp: await _lookupIspWith(client), error: null);
+    } catch (error) {
+      return (isp: null, error: error.toString());
+    }
+  }
+
+  Future<NetworkSpeedTestResult> _measureSpeedTestWith(
+    HttpClient client,
+  ) async {
+    const latencyProbeBytes = 1024;
+    const downloadBytes = 5000000;
+    const uploadBytes = 1000000;
+    const timeout = Duration(seconds: 20);
+    final latencySamples = <double>[];
+
+    for (var sample = 0; sample < 3; sample++) {
+      final stopwatch = Stopwatch()..start();
+      final request = await client
+          .getUrl(
+            Uri.https('speed.cloudflare.com', '/__down', {
+              'bytes': '$latencyProbeBytes',
+              'probe': '${DateTime.now().microsecondsSinceEpoch}',
+            }),
+          )
+          .timeout(timeout);
+      _configureSpeedTestRequest(request);
+      final response = await request.close().timeout(timeout);
+      _checkSpeedTestResponse(response, 'latency probe');
+      await response.drain<void>().timeout(timeout);
+      stopwatch.stop();
+      latencySamples.add(stopwatch.elapsedMicroseconds / 1000);
+    }
+
+    final latencyMilliseconds =
+        latencySamples.reduce((a, b) => a + b) / latencySamples.length;
+    final downloadStopwatch = Stopwatch()..start();
+    final downloadRequest = await client
+        .getUrl(
+          Uri.https('speed.cloudflare.com', '/__down', {
+            'bytes': '$downloadBytes',
+            'test': '${DateTime.now().microsecondsSinceEpoch}',
+          }),
+        )
+        .timeout(timeout);
+    _configureSpeedTestRequest(downloadRequest);
+    final downloadResponse = await downloadRequest.close().timeout(timeout);
+    _checkSpeedTestResponse(downloadResponse, 'download');
+    var receivedBytes = 0;
+    await for (final chunk in downloadResponse.timeout(timeout)) {
+      receivedBytes += chunk.length;
+    }
+    downloadStopwatch.stop();
+
+    final uploadData = Uint8List(uploadBytes);
+    final uploadStopwatch = Stopwatch()..start();
+    final uploadRequest = await client
+        .postUrl(Uri.https('speed.cloudflare.com', '/__up'))
+        .timeout(timeout);
+    uploadRequest.contentLength = uploadBytes;
+    uploadRequest.headers
+        .set(HttpHeaders.contentTypeHeader, 'application/octet-stream');
+    _configureSpeedTestRequest(uploadRequest);
+    uploadRequest.add(uploadData);
+    final uploadResponse = await uploadRequest.close().timeout(timeout);
+    _checkSpeedTestResponse(uploadResponse, 'upload');
+    await uploadResponse.drain<void>().timeout(timeout);
+    uploadStopwatch.stop();
+
+    if (receivedBytes == 0) {
+      throw const FormatException('The download test received no data.');
+    }
+    final downloadSeconds =
+        downloadStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+    final uploadSeconds =
+        uploadStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+    if (downloadSeconds <= 0 || uploadSeconds <= 0) {
+      throw const FormatException('The transfer was too short to measure.');
+    }
+
+    return NetworkSpeedTestResult(
+      latencyMilliseconds: latencyMilliseconds,
+      downloadMegabitsPerSecond: receivedBytes * 8 / downloadSeconds / 1000000,
+      uploadMegabitsPerSecond: uploadBytes * 8 / uploadSeconds / 1000000,
+      downloadBytes: receivedBytes,
+      uploadBytes: uploadBytes,
+    );
+  }
+
+  void _configureSpeedTestRequest(HttpClientRequest request) {
+    request.headers
+      ..set(HttpHeaders.userAgentHeader, 'ZIONGZOU-SpeedTest/1.0')
+      ..set('referer', 'https://speed.cloudflare.com/')
+      ..set(HttpHeaders.cacheControlHeader, 'no-cache')
+      ..set(HttpHeaders.acceptEncodingHeader, 'identity');
+  }
+
+  void _checkSpeedTestResponse(HttpClientResponse response, String operation) {
+    if (response.statusCode < HttpStatus.ok ||
+        response.statusCode >= HttpStatus.multipleChoices) {
+      throw HttpException(
+        'Cloudflare $operation test returned HTTP ${response.statusCode}.',
+      );
+    }
+  }
+
   Future<void> _copyWifiCommand() async {
     final name = _wifiName.text.trim();
     if (name.isEmpty || RegExp(r'["%&|<>!\r\n]').hasMatch(name)) {
@@ -468,11 +724,13 @@ class _NetworkDoctorPageState extends State<NetworkDoctorPage> {
 
 class _DiagnosticButton extends StatelessWidget {
   const _DiagnosticButton({
+    this.actionKey,
     required this.title,
     required this.command,
     required this.onPressed,
   });
 
+  final Key? actionKey;
   final String title;
   final String command;
   final VoidCallback? onPressed;
@@ -483,6 +741,7 @@ class _DiagnosticButton extends StatelessWidget {
           title: Text(title),
           subtitle: Text(command),
           trailing: IconButton(
+            key: actionKey,
             tooltip: 'Run diagnostic',
             onPressed: onPressed,
             icon: const Icon(Icons.play_arrow),

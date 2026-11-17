@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../core/toolkit_utils.dart';
+import '../../core/windows_command_runner.dart';
 import '../../data/cmd_data.dart';
 
 class CmdPage extends StatefulWidget {
@@ -91,7 +92,7 @@ class _CmdPageState extends State<CmdPage> {
     return PageScaffold(
       title: 'Commands & Power Tools',
       subtitle:
-          '${cmdData.length} local Windows commands · review before running',
+          '${cmdData.length} local Windows commands · review and confirm before running',
       children: [
         Text('Bundle Fixes', style: Theme.of(context).textTheme.titleLarge),
         for (final bundle in _bundles)
@@ -100,17 +101,29 @@ class _CmdPageState extends State<CmdPage> {
               title: Text(bundle.$1),
               subtitle: Text('${bundle.$2}\n${bundle.$3.join(' && ')}'),
               isThreeLine: true,
-              trailing: IconButton(
-                tooltip: 'Copy bundle commands',
-                onPressed: () => copyText(context, bundle.$3.join(' && ')),
-                icon: const Icon(Icons.copy_all),
+              trailing: Wrap(
+                spacing: 4,
+                children: [
+                  IconButton(
+                    tooltip: 'Copy bundle commands',
+                    onPressed: () => copyText(context, bundle.$3.join(' && ')),
+                    icon: const Icon(Icons.copy_all),
+                  ),
+                  IconButton(
+                    tooltip:
+                        'This bundle includes Advanced commands; run eligible commands individually.',
+                    onPressed: null,
+                    icon: const Icon(Icons.play_arrow),
+                  ),
+                ],
               ),
             ),
           ),
         const _Notice(
           text:
-              'Commands are copied only; this app does not execute Windows commands. '
-              'Disk cleanup lists temporary files for review and does not delete them.',
+              'Safe and Medium commands run in Command Prompt after confirmation. '
+              'Advanced commands remain copy-only. Disk cleanup lists temporary '
+              'files for review and does not delete them.',
         ),
         const SizedBox(height: 8),
         Text('System Tools', style: Theme.of(context).textTheme.titleLarge),
@@ -218,10 +231,32 @@ class _CmdPageState extends State<CmdPage> {
             ),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => copyText(context, entry['cmd']!),
-                icon: const Icon(Icons.copy),
-                label: const Text('Copy'),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  Tooltip(
+                    message: entry['risk'] == 'Advanced'
+                        ? 'Advanced commands remain copy-only.'
+                        : 'Run after confirmation',
+                    child: TextButton.icon(
+                      onPressed: entry['risk'] == 'Advanced'
+                          ? null
+                          : () => runWindowsCommand(
+                                context,
+                                title: entry['cmd']!,
+                                command: entry['cmd']!,
+                                riskLevel: entry['risk']!,
+                              ),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Run'),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => copyText(context, entry['cmd']!),
+                    icon: const Icon(Icons.copy),
+                    label: const Text('Copy'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -237,20 +272,26 @@ class _CmdPageState extends State<CmdPage> {
   ) async {
     final copied = await copyText(context, command);
     if (!copied || !context.mounted) return;
-    await showDialog<void>(
+    final openTool = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Text(
-            'Copied $command. Press Win+R, paste the command, and press Enter.'),
+        content: Text('Copied $command. You can run this Windows tool now.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open tool'),
           ),
         ],
       ),
     );
+    if (openTool == true && context.mounted) {
+      await openWindowsTool(context, title: title, command: command);
+    }
   }
 }
 

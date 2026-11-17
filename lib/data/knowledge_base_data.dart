@@ -23,7 +23,7 @@ const _knowledgeGroups = <String, List<(String, String, String)>>{
     (
       'Activation warning',
       'Windows reports that activation is incomplete.',
-      'Check edition, internet access and activation status; contact the licensed supplier.'
+      'Confirm the installed edition matches the license, check Settings > System > Activation, run the Activation troubleshooter if available, and contact the licensed supplier or Microsoft Support. Avoid unofficial activation scripts.'
     ),
   ],
   'Hardware': [
@@ -215,6 +215,33 @@ const _knowledgeGroups = <String, List<(String, String, String)>>{
       'Verify NTP source, timezone and daylight-saving configuration across the recorder and cameras.'
     ),
   ],
+  'Software': [
+    (
+      'Plan a Windows software installation',
+      'A user needs an approved desktop application installed on a Windows device.',
+      'Confirm the exact application and version, device compatibility, business approval, disk space and license. Prefer Microsoft Store, WinGet, or the software publisher’s official website. Verify the publisher and installer signature, close relevant work, use standard-user permissions where possible, and verify the app opens and updates afterward.'
+    ),
+    (
+      'Install software with WinGet',
+      'An approved application is available from the Windows Package Manager source.',
+      'Check that WinGet is available with winget --version. Search the app, inspect the exact package ID and publisher with winget show, then install only after confirming the source and prompts. For example, search and inspect 7-Zip before using winget install --id 7zip.7zip --exact --source winget.'
+    ),
+    (
+      'Install from the Microsoft Store',
+      'A user needs a Store-distributed application.',
+      'Open Microsoft Store using the intended work or personal account, search for the exact app, verify its publisher and requirements, select Get or Install, and approve only expected prompts. Check the app launches and record its version.'
+    ),
+    (
+      'Troubleshoot a failed software installation',
+      'An installer exits with an error or the application does not appear after installation.',
+      'Record the complete error and installer log, confirm Windows version and processor architecture, available disk space, prerequisites and user permissions. Retry only from the verified publisher or package source. Do not disable antivirus, run unknown scripts, or repeatedly launch an installer without understanding the error.'
+    ),
+    (
+      'Update or remove Windows software',
+      'An installed application needs an update or is no longer required.',
+      'Check the application’s built-in updater, Microsoft Store, or WinGet package details. Confirm the exact app and version before updating. For removal, prefer Settings > Apps > Installed apps or the publisher’s uninstaller; confirm user data and dependencies are backed up before removal.'
+    ),
+  ],
 };
 
 final knowledgeBaseData = <Map<String, dynamic>>[
@@ -252,4 +279,5 @@ const knowledgeCategories = <String>[
   'WiFi',
   'Fiber',
   'CCTV',
+  'Software',
 ];

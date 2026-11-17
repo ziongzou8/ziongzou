@@ -8,9 +8,14 @@ import '../../core/theme.dart';
 import '../../core/toolkit_utils.dart';
 
 class SystemMonitorPage extends StatefulWidget {
-  const SystemMonitorPage({super.key, this.active = true});
+  const SystemMonitorPage({
+    super.key,
+    this.active = true,
+    this.embedded = false,
+  });
 
   final bool active;
+  final bool embedded;
 
   @override
   State<SystemMonitorPage> createState() => _SystemMonitorPageState();
@@ -42,12 +47,16 @@ class _SystemMonitorPageState extends State<SystemMonitorPage> {
 
   void _activate() {
     _refresh();
-    _timer ??= Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+    if (!widget.embedded) {
+      _timer ??= Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+    }
   }
 
   Future<void> _refresh() async {
     try {
-      final value = await readSystemSnapshot();
+      final value = await readSystemSnapshot(
+        includePerformanceMetrics: !widget.embedded,
+      );
       if (mounted) {
         setState(() {
           _snapshot = value;
@@ -68,10 +77,7 @@ class _SystemMonitorPageState extends State<SystemMonitorPage> {
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
-    return PageScaffold(
-      title: 'System Monitor',
-      subtitle: 'Live platform metrics · refreshes every 2 seconds',
-      children: [
+    final children = <Widget>[
         if (_error != null)
           Card(
             child: ListTile(
@@ -96,41 +102,43 @@ class _SystemMonitorPageState extends State<SystemMonitorPage> {
             ],
           ),
         ),
-        Text('Performance', style: Theme.of(context).textTheme.titleLarge),
-        _MetricBar(
-          title: 'CPU',
-          fraction:
-              snapshot?.cpuUsage == null ? null : snapshot!.cpuUsage! / 100,
-          value: snapshot?.cpuUsage == null
-              ? 'Unavailable on this platform'
-              : '${snapshot!.cpuUsage!.toStringAsFixed(1)}%',
-        ),
-        _MetricBar(
-          title: 'RAM',
-          fraction: snapshot?.ramUsage,
-          value: snapshot == null
-              ? 'Reading…'
-              : '${formatBytes(snapshot.totalRam)} total · ${formatBytes(snapshot.totalRam != null && snapshot.freeRam != null ? snapshot.totalRam! - snapshot.freeRam! : null)} used · ${formatBytes(snapshot.freeRam)} free',
-        ),
-        _MetricBar(
-          title: 'Disk',
-          fraction: snapshot?.diskUsage,
-          value: snapshot == null
-              ? 'Reading…'
-              : '${formatBytes(snapshot.totalDisk)} total · ${formatBytes(snapshot.freeDisk)} free',
-        ),
-        Card(
-          child: ListTile(
-            leading: Icon(
-              _healthIcon(snapshot),
-              color: _healthColor(snapshot),
-            ),
-            title: Text('System health: ${_health(snapshot)}'),
-            subtitle: const Text(
-              'Assessment uses available OS metrics only; unavailable metrics are not estimated.',
+        if (!widget.embedded) ...[
+          Text('Performance', style: Theme.of(context).textTheme.titleLarge),
+          _MetricBar(
+            title: 'CPU',
+            fraction:
+                snapshot?.cpuUsage == null ? null : snapshot!.cpuUsage! / 100,
+            value: snapshot?.cpuUsage == null
+                ? 'Unavailable on this platform'
+                : '${snapshot!.cpuUsage!.toStringAsFixed(1)}%',
+          ),
+          _MetricBar(
+            title: 'RAM',
+            fraction: snapshot?.ramUsage,
+            value: snapshot == null
+                ? 'Reading…'
+                : '${formatBytes(snapshot.totalRam)} total · ${formatBytes(snapshot.totalRam != null && snapshot.freeRam != null ? snapshot.totalRam! - snapshot.freeRam! : null)} used · ${formatBytes(snapshot.freeRam)} free',
+          ),
+          _MetricBar(
+            title: 'Disk',
+            fraction: snapshot?.diskUsage,
+            value: snapshot == null
+                ? 'Reading…'
+                : '${formatBytes(snapshot.totalDisk)} total · ${formatBytes(snapshot.freeDisk)} free',
+          ),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                _healthIcon(snapshot),
+                color: _healthColor(snapshot),
+              ),
+              title: Text('System health: ${_health(snapshot)}'),
+              subtitle: const Text(
+                'Assessment uses available OS metrics only; unavailable metrics are not estimated.',
+              ),
             ),
           ),
-        ),
+        ],
         Text('Storage Cleanup (manual review)',
             style: Theme.of(context).textTheme.titleLarge),
         const Card(
@@ -188,7 +196,26 @@ class _SystemMonitorPageState extends State<SystemMonitorPage> {
               style: TextStyle(color: ToolkitColors.muted),
             ),
           ),
-      ],
+      ];
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('System Monitor',
+              style: Theme.of(context).textTheme.titleLarge),
+          const Text(
+            'Device details · performance monitoring is disabled on Home',
+            style: TextStyle(color: ToolkitColors.muted),
+          ),
+          const SizedBox(height: 14),
+          ...children,
+        ],
+      );
+    }
+    return PageScaffold(
+      title: 'System Monitor',
+      subtitle: 'Live platform metrics · refreshes every 2 seconds',
+      children: children,
     );
   }
 

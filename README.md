@@ -25,10 +25,10 @@ flutter run -d SHG08
 ```
 
 For Android, the app requests network access to report connectivity and perform
-an optional public-IP lookup. Network adapter details and public-IP lookups are
-best-effort and may be unavailable due to device permissions, platform
-limitations, or network policy. All reference catalogs remain available
-offline.
+optional public-IP and ISP lookups. ISP is estimated from the public IP through
+ipwho.is and may be unavailable due to service limits, device permissions,
+platform limitations, or network policy. All reference catalogs remain
+available offline.
 
 ## Build
 
@@ -50,3 +50,11 @@ flutter build windows --release
   available, otherwise to the app documents directory. Reports can also be
   shared or printed. Technicians can attach up to 10 photos with descriptions;
   the images and captions are embedded in the generated PDF.
+- Proposal and BOQ generators are separate options under Tools. Proposals are
+  saved as editable Word (`.docx`) documents; BOQs are saved as Excel (`.xlsx`)
+  workbooks with calculated line and grand totals. BOQs support extra user-
+  defined columns and rows. Recent proposals and BOQs are kept locally and can
+  be opened from their generator pages. Empty optional proposal sections and
+  unused BOQ columns are omitted from generated documents. All generated
+  documents include the AHEAD AFRICA logo, company contact details, and a
+  clickable website link.

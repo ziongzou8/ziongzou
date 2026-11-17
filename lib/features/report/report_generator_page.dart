@@ -11,7 +11,17 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/company_branding.dart';
 import '../../core/toolkit_utils.dart';
+
+const _reportContentSections = <(String, String)>[
+  ('problem', 'Problem reported'),
+  ('diagnosis', 'Diagnosis'),
+  ('work', 'Work performed'),
+  ('solution', 'Solution / outcome'),
+  ('challenges', 'Challenges'),
+  ('recommendations', 'Recommendations'),
+];
 
 class ReportGeneratorPage extends StatefulWidget {
   const ReportGeneratorPage({super.key, required this.preferences});
@@ -26,9 +36,16 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
   static const _maxReportImages = 10;
 
   final _form = GlobalKey<FormState>();
+  final _signaturePadKey = GlobalKey();
   late final Map<String, TextEditingController> _fields;
-  final List<_ReportImageAttachment> _attachments = [];
+  final List<_ReportAttachment> _attachments = [];
+  final List<List<Offset>> _signatureStrokes = [];
+  final Map<String, String> _sectionLabels = {
+    for (final section in _reportContentSections) section.$1: section.$2,
+  };
+  final Set<String> _hiddenSections = {};
   String _status = 'Completed';
+  _SignatureType _signatureType = _SignatureType.typed;
   bool _busy = false;
   String? _lastSavedPath;
 
@@ -48,7 +65,7 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
     ('challenges', 'Challenges', 3),
     ('recommendations', 'Recommendations', 3),
     ('technician', 'Technician name', 1),
-    ('signature', 'Signature (typed name or placeholder)', 1),
+    ('signature', 'Typed signature', 1),
   ];
 
   @override
@@ -85,24 +102,91 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
   }
 
   Map<String, String> _values() => {
-        for (final spec in _fieldSpecs) spec.$2: _fields[spec.$1]!.text.trim(),
+        for (final spec in _fieldSpecs)
+          if (spec.$1 != 'signature') spec.$2: _fields[spec.$1]!.text.trim(),
         'Status': _status,
       };
 
+  bool _validateSignature() {
+    final message = switch (_signatureType) {
+      _SignatureType.typed when _fields['signature']!.text.trim().isEmpty =>
+        'Enter the technician signature.',
+      _SignatureType.freehand when _signatureStrokes.isEmpty =>
+        'Draw the technician signature before generating the report.',
+      _ => null,
+    };
+    if (message == null) return true;
+    showToolkitMessage(context, message);
+    return false;
+  }
+
+  void _selectSignatureType(_SignatureType? value) {
+    if (value == null || value == _signatureType) return;
+    setState(() => _signatureType = value);
+  }
+
+  Offset _normalizedSignaturePoint(Offset point) {
+    final renderObject = _signaturePadKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || renderObject.size.isEmpty) {
+      return Offset.zero;
+    }
+    return Offset(
+      (point.dx / renderObject.size.width).clamp(0.0, 1.0).toDouble(),
+      (point.dy / renderObject.size.height).clamp(0.0, 1.0).toDouble(),
+    );
+  }
+
+  void _startSignatureStroke(DragStartDetails details) {
+    setState(() {
+      _signatureStrokes.add([
+        _normalizedSignaturePoint(details.localPosition),
+      ]);
+    });
+  }
+
+  void _continueSignatureStroke(DragUpdateDetails details) {
+    if (_signatureStrokes.isEmpty) return;
+    setState(() {
+      _signatureStrokes.last.add(
+        _normalizedSignaturePoint(details.localPosition),
+      );
+    });
+  }
+
+  void _clearSignature() {
+    setState(_signatureStrokes.clear);
+  }
+
+  String _signatureSvg() {
+    final paths = _signatureStrokes.map((stroke) {
+      if (stroke.isEmpty) return '';
+      final commands = [
+        for (var index = 0; index < stroke.length; index++)
+          '${index == 0 ? 'M' : 'L'} '
+              '${(stroke[index].dx * 600).toStringAsFixed(2)} '
+              '${(stroke[index].dy * 160).toStringAsFixed(2)}',
+      ].join(' ');
+      return '<path d="$commands" fill="none" stroke="#000000" '
+          'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>';
+    }).join();
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="160" '
+        'viewBox="0 0 600 160">$paths</svg>';
+  }
+
   Future<Uint8List?> _createPdf() async {
-    if (!_form.currentState!.validate()) return null;
+    if (!_form.currentState!.validate() || !_validateSignature()) return null;
     final values = _values();
     final document = pw.Document();
     final logoBytes = (await rootBundle.load('assets/ahead_africa_logo.png'))
         .buffer
         .asUint8List();
     final logo = pw.MemoryImage(logoBytes);
-    final reportImages = [
+    final reportAttachments = [
       for (final attachment in _attachments)
         (
-          image: pw.MemoryImage(attachment.bytes),
+          attachment: attachment,
+          image: attachment.isImage ? pw.MemoryImage(attachment.bytes) : null,
           description: attachment.description.text.trim(),
-          name: attachment.name,
         ),
     ];
     document.addPage(
@@ -116,25 +200,37 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
               top: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
             ),
           ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Expanded(
-                child: pw.Text(
-                  '5th Floor, Garden Avenue Tower, Ohio St, Dar es Salaam',
-                  style: const pw.TextStyle(
-                    fontSize: 8,
-                    color: PdfColors.grey700,
-                  ),
-                ),
-              ),
-              pw.SizedBox(width: 12),
               pw.Text(
-                'Phone: 0690 255 556',
+                companyAddress,
                 style: const pw.TextStyle(
                   fontSize: 8,
                   color: PdfColors.grey700,
                 ),
+              ),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Phone: $companyPhone',
+                    style: const pw.TextStyle(
+                      fontSize: 8,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
+                  pw.UrlLink(
+                    destination: companyWebsite,
+                    child: pw.Text(
+                      companyWebsite,
+                      style: const pw.TextStyle(
+                        fontSize: 8,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -195,64 +291,122 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
             },
             children: [
               for (final entry in values.entries)
-                pw.TableRow(
-                  children: [
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.symmetric(vertical: 5),
-                      child: pw.Text(
-                        entry.key,
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                if (!_reportContentSections.any(
+                  (section) => section.$2 == entry.key,
+                ))
+                  pw.TableRow(
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(vertical: 5),
+                        child: pw.Text(
+                          entry.key,
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
                       ),
-                    ),
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.symmetric(vertical: 5),
-                      child: pw.Text(entry.value.isEmpty ? '—' : entry.value),
-                    ),
-                  ],
-                ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(vertical: 5),
+                        child: pw.Text(entry.value.isEmpty ? '—' : entry.value),
+                      ),
+                    ],
+                  ),
             ],
           ),
           pw.SizedBox(height: 18),
+          for (final section in _reportContentSections)
+            if (!_hiddenSections.contains(section.$1))
+              ..._buildPdfSection(section, reportAttachments),
+          pw.SizedBox(height: 18),
           pw.Text(
-              'Technician signature: ${values['Signature (typed name or placeholder)']}'),
-          if (reportImages.isNotEmpty) ...[
-            pw.SizedBox(height: 20),
-            pw.Text(
-              'PHOTOGRAPHIC EVIDENCE',
-              style: pw.TextStyle(
-                fontSize: 12,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.blue900,
+            'Technician signature',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 6),
+          switch (_signatureType) {
+            _SignatureType.typed => pw.Text(_fields['signature']!.text.trim()),
+            _SignatureType.freehand => pw.SvgImage(
+                svg: _signatureSvg(),
+                width: 360,
+                height: 96,
               ),
-            ),
-            pw.SizedBox(height: 8),
-            for (var index = 0; index < reportImages.length; index++) ...[
-              pw.Text(
-                'Image ${index + 1}: ${reportImages[index].description.isEmpty ? reportImages[index].name : reportImages[index].description}',
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              ),
-              pw.SizedBox(height: 6),
-              pw.Center(
-                child: pw.Image(
-                  reportImages[index].image,
-                  width: 500,
-                  height: 300,
-                  fit: pw.BoxFit.contain,
-                ),
-              ),
-              pw.SizedBox(height: 14),
-            ],
-          ],
-          pw.SizedBox(height: 28),
-          pw.Text('Generated by ZIONGZOU Technician Toolkit',
-              style: const pw.TextStyle(
-                fontSize: 9,
-                color: PdfColors.grey700,
-              )),
+          },
         ],
       ),
     );
     return document.save();
+  }
+
+  List<pw.Widget> _buildPdfSection(
+    (String, String) section,
+    List<
+            ({
+              _ReportAttachment attachment,
+              pw.MemoryImage? image,
+              String description,
+            })>
+        attachments,
+  ) {
+    final sectionAttachments = attachments
+        .where((item) => item.attachment.section == section.$1)
+        .toList();
+    final text = _fields[section.$1]!.text.trim();
+    if (text.isEmpty && sectionAttachments.isEmpty) return [];
+
+    return [
+      pw.Text(
+        _sectionLabels[section.$1]!,
+        style: pw.TextStyle(
+          fontSize: 12,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.blue900,
+        ),
+      ),
+      pw.SizedBox(height: 6),
+      for (final item in sectionAttachments)
+        if (item.attachment.position == _AttachmentPosition.beforeText)
+          ..._pdfAttachment(item),
+      if (text.isNotEmpty) pw.Text(text),
+      for (final item in sectionAttachments)
+        if (item.attachment.position == _AttachmentPosition.afterText)
+          ..._pdfAttachment(item),
+      pw.SizedBox(height: 14),
+    ];
+  }
+
+  List<pw.Widget> _pdfAttachment(
+    ({
+      _ReportAttachment attachment,
+      pw.MemoryImage? image,
+      String description,
+    }) item,
+  ) {
+    if (item.image == null) {
+      return [
+        pw.Text(
+          'Attachment: ${item.attachment.name}'
+          '${item.description.isEmpty ? '' : ' — ${item.description}'}',
+          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+        ),
+        pw.SizedBox(height: 6),
+      ];
+    }
+
+    return [
+      if (item.description.isNotEmpty || item.attachment.name.isNotEmpty)
+        pw.Text(
+          item.description.isEmpty ? item.attachment.name : item.description,
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+        ),
+      pw.SizedBox(height: 6),
+      pw.Center(
+        child: pw.Image(
+          item.image!,
+          width: 500,
+          height: 300,
+          fit: pw.BoxFit.contain,
+        ),
+      ),
+      pw.SizedBox(height: 14),
+    ];
   }
 
   Future<Directory> _outputDirectory() async {
@@ -283,6 +437,20 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
           );
       final file = File(path.join(directory.path, '$reference.pdf'));
       await file.writeAsBytes(bytes, flush: true);
+      for (var index = 0; index < _attachments.length; index++) {
+        final attachment = _attachments[index];
+        if (attachment.isImage) continue;
+        final name = path.basename(attachment.name).replaceAll(
+              RegExp(r'[^A-Za-z0-9._-]'),
+              '_',
+            );
+        await File(
+          path.join(
+            directory.path,
+            '${reference}_attachment_${index + 1}_$name',
+          ),
+        ).writeAsBytes(attachment.bytes, flush: true);
+      }
       if (mounted) {
         setState(() => _lastSavedPath = file.path);
       }
@@ -321,6 +489,82 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
         onLayout: (_) async => bytes,
       );
     });
+  }
+
+  Future<void> _openRecentReport(Map<String, dynamic> values) async {
+    final reportPath = values['path']?.toString();
+    if (reportPath == null || reportPath.isEmpty) {
+      showToolkitMessage(context, 'This report has no saved PDF path.');
+      return;
+    }
+
+    try {
+      final bytes = await File(reportPath).readAsBytes();
+      if (!mounted) return;
+      final reference = values['reference']?.toString();
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => Scaffold(
+            appBar: AppBar(
+              title: Text(
+                reference == null || reference.isEmpty
+                    ? path.basename(reportPath)
+                    : reference,
+              ),
+            ),
+            body: PdfPreview(
+              build: (_) async => bytes,
+              pdfFileName: path.basename(reportPath),
+              canChangeOrientation: false,
+              canChangePageFormat: false,
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        showToolkitMessage(context, 'Could not open report: $error');
+      }
+    }
+  }
+
+  Future<void> _clearRecentReports() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear recent reports?'),
+        content: const Text(
+          'This clears the recent list only. Saved PDF files will not be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final cleared = await widget.preferences.setStringList(
+        'report_history',
+        const [],
+      );
+      if (!cleared) throw StateError('Recent reports could not be cleared.');
+      if (mounted) {
+        setState(() {});
+        showToolkitMessage(context, 'Recent reports cleared.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showToolkitMessage(context, 'Could not clear recent reports: $error');
+      }
+    }
   }
 
   Future<void> _withPdf(Future<void> Function(Uint8List bytes) action) async {
@@ -369,48 +613,74 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
             key: _form,
             child: Column(
               children: [
-                for (final spec in _fieldSpecs)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: TextFormField(
-                      controller: _fields[spec.$1],
-                      minLines: spec.$3,
-                      maxLines: spec.$3,
-                      readOnly: spec.$1 == 'date' || spec.$1 == 'time',
-                      onTap: spec.$1 == 'date'
-                          ? _pickDate
-                          : spec.$1 == 'time'
-                              ? _pickTime
-                              : null,
-                      onChanged: spec.$1 == 'signature'
-                          ? (_) => setState(() {})
-                          : null,
-                      decoration: InputDecoration(
-                        labelText: spec.$2,
-                        suffixIcon: spec.$1 == 'reference'
-                            ? IconButton(
-                                tooltip: 'Generate new reference',
-                                onPressed: _regenerateReference,
-                                icon: const Icon(Icons.refresh),
-                              )
+                for (final spec
+                    in _fieldSpecs.where((spec) => spec.$1 != 'signature'))
+                  if (!_hiddenSections.contains(spec.$1))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextFormField(
+                        controller: _fields[spec.$1],
+                        minLines: spec.$3,
+                        maxLines: spec.$3,
+                        readOnly: spec.$1 == 'date' || spec.$1 == 'time',
+                        onTap: spec.$1 == 'date'
+                            ? _pickDate
+                            : spec.$1 == 'time'
+                                ? _pickTime
+                                : null,
+                        decoration: InputDecoration(
+                          labelText: _sectionLabels[spec.$1] ?? spec.$2,
+                          suffixIcon: _sectionLabels.containsKey(spec.$1)
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip:
+                                          'Rename ${_sectionLabels[spec.$1]}',
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _renameSection(spec.$1),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                    IconButton(
+                                      tooltip:
+                                          'Hide ${_sectionLabels[spec.$1]}',
+                                      onPressed: _busy
+                                          ? null
+                                          : () => setState(
+                                                () => _hiddenSections
+                                                    .add(spec.$1),
+                                              ),
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                  ],
+                                )
+                              : spec.$1 == 'reference'
+                                  ? IconButton(
+                                      tooltip: 'Generate new reference',
+                                      onPressed: _regenerateReference,
+                                      icon: const Icon(Icons.refresh),
+                                    )
+                                  : null,
+                        ),
+                        validator: {
+                                  'company',
+                                  'client',
+                                  'site',
+                                  'problem',
+                                  'diagnosis',
+                                  'work',
+                                  'solution',
+                                  'technician',
+                                }.contains(spec.$1) &&
+                                !_hiddenSections.contains(spec.$1)
+                            ? (value) => value == null || value.trim().isEmpty
+                                ? 'Required'
+                                : null
                             : null,
                       ),
-                      validator: {
-                        'company',
-                        'client',
-                        'site',
-                        'problem',
-                        'diagnosis',
-                        'work',
-                        'solution',
-                        'technician',
-                      }.contains(spec.$1)
-                          ? (value) => value == null || value.trim().isEmpty
-                              ? 'Required'
-                              : null
-                          : null,
                     ),
-                  ),
+                _buildSignatureSection(),
                 DropdownButtonFormField<String>(
                   // ignore: deprecated_member_use
                   value: _status,
@@ -429,23 +699,13 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
                     if (value != null) setState(() => _status = value);
                   },
                 ),
+                if (_hiddenSections.isNotEmpty) _buildHiddenSections(),
                 const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white24),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    'Technician signature placeholder\n${_fields['signature']!.text.isEmpty ? '________________________________' : _fields['signature']!.text}',
-                  ),
-                ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          _buildImageEvidenceSection(),
+          _buildAttachmentsSection(),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -471,46 +731,63 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
           if (_lastSavedPath != null)
             SelectableText('Last saved: $_lastSavedPath'),
           const SizedBox(height: 12),
-          Text('Recent Reports', style: Theme.of(context).textTheme.titleLarge),
           FutureBuilder<List<String>>(
             future: Future.value(
               widget.preferences.getStringList('report_history') ?? const [],
             ),
             builder: (context, snapshot) {
               final records = snapshot.data ?? const <String>[];
-              if (records.isEmpty) {
-                return const Card(
-                  child: ListTile(title: Text('Saved reports appear here.')),
-                );
-              }
               return Column(
                 children: [
-                  for (final record in records)
-                    Builder(
-                      builder: (context) {
-                        try {
-                          final values =
-                              jsonDecode(record) as Map<String, dynamic>;
-                          return Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.picture_as_pdf),
-                              title: Text(
-                                  '${values['reference']} · ${values['client']}'),
-                              subtitle: Text(
-                                  '${values['date']} · ${values['status']}\n${values['path']}'),
-                            ),
-                          );
-                        } catch (error) {
-                          return Card(
-                            child: ListTile(
-                              title:
-                                  const Text('Unreadable saved report record'),
-                              subtitle: Text('$error'),
-                            ),
-                          );
-                        }
-                      },
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Recent Reports',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: records.isEmpty ? null : _clearRecentReports,
+                        icon: const Icon(Icons.delete_sweep_outlined),
+                        label: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                  if (records.isEmpty)
+                    const Card(
+                      child: ListTile(
+                        title: Text('Saved reports appear here.'),
+                      ),
+                    )
+                  else
+                    for (final record in records)
+                      Builder(
+                        builder: (context) {
+                          try {
+                            final values =
+                                jsonDecode(record) as Map<String, dynamic>;
+                            return Card(
+                              child: ListTile(
+                                leading: const Icon(Icons.picture_as_pdf),
+                                title: Text(
+                                    '${values['reference']} · ${values['client']}'),
+                                subtitle: Text(
+                                    '${values['date']} · ${values['status']}\n${values['path']}'),
+                                onTap: () => _openRecentReport(values),
+                              ),
+                            );
+                          } catch (error) {
+                            return Card(
+                              child: ListTile(
+                                title: const Text(
+                                    'Unreadable saved report record'),
+                                subtitle: Text('$error'),
+                              ),
+                            );
+                          }
+                        },
+                      ),
                 ],
               );
             },
@@ -518,28 +795,106 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
         ],
       );
 
-  Widget _buildImageEvidenceSection() => Card(
+  Widget _buildSignatureSection() => Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Image evidence',
+                'Technician signature',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              DropdownButtonFormField<_SignatureType>(
+                key: const ValueKey('signature-type-selector'),
+                initialValue: _signatureType,
+                decoration: const InputDecoration(labelText: 'Signature type'),
+                items: [
+                  for (final type in _SignatureType.values)
+                    DropdownMenuItem(
+                      value: type,
+                      child: Text(type.label),
+                    ),
+                ],
+                onChanged: _selectSignatureType,
+              ),
+              const SizedBox(height: 8),
+              switch (_signatureType) {
+                _SignatureType.typed => TextFormField(
+                    controller: _fields['signature'],
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Typed signature',
+                      hintText: 'Enter the technician name',
+                    ),
+                  ),
+                _SignatureType.freehand => _buildFreehandSignature(),
+              },
+            ],
+          ),
+        ),
+      );
+
+  Widget _buildFreehandSignature() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Draw your signature using a finger, stylus, or mouse.'),
+          const SizedBox(height: 8),
+          Container(
+            key: const ValueKey('signature-pad'),
+            height: 160,
+            width: double.infinity,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.black54),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: GestureDetector(
+              key: _signaturePadKey,
+              behavior: HitTestBehavior.opaque,
+              onPanStart: _startSignatureStroke,
+              onPanUpdate: _continueSignatureStroke,
+              child: CustomPaint(
+                painter: _SignaturePadPainter(_signatureStrokes),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey('clear-signature-drawing'),
+              onPressed: _signatureStrokes.isEmpty ? null : _clearSignature,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Clear drawing'),
+            ),
+          ),
+        ],
+      );
+
+  Widget _buildAttachmentsSection() => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Report attachments',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 4),
               const Text(
-                'Add up to $_maxReportImages photos with a description. '
-                'They will be included in the generated PDF.',
+                'Add up to $_maxReportImages images, or attach other files. '
+                'Choose a report section and whether each item appears before '
+                'or after its text. Other files are saved beside the PDF and '
+                'listed in the report.',
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(
-                onPressed: _busy || _attachments.length >= _maxReportImages
-                    ? null
-                    : _pickImages,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('Add images'),
+                onPressed: _busy ? null : _pickAttachments,
+                icon: const Icon(Icons.attach_file),
+                label: const Text('Add files or images'),
               ),
               for (var index = 0; index < _attachments.length; index++)
                 _buildAttachmentCard(index),
@@ -557,35 +912,86 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(
-                attachment.bytes,
-                width: 88,
-                height: 88,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const SizedBox(
+            if (attachment.isImage)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  attachment.bytes,
                   width: 88,
                   height: 88,
-                  child: Icon(Icons.broken_image_outlined),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox(
+                    width: 88,
+                    height: 88,
+                    child: Icon(Icons.broken_image_outlined),
+                  ),
                 ),
+              )
+            else
+              const SizedBox(
+                width: 88,
+                height: 88,
+                child: Icon(Icons.insert_drive_file_outlined),
               ),
-            ),
             const SizedBox(width: 12),
             Expanded(
-              child: TextFormField(
-                controller: attachment.description,
-                minLines: 1,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Image description',
-                  hintText: 'Describe the issue, work, or result shown',
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    attachment.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  TextFormField(
+                    controller: attachment.description,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: attachment.isImage
+                          ? 'Image description'
+                          : 'Description',
+                      hintText: 'Describe this attachment',
+                    ),
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: attachment.section,
+                    decoration:
+                        const InputDecoration(labelText: 'Report section'),
+                    items: [
+                      for (final section in _reportContentSections)
+                        DropdownMenuItem(
+                          value: section.$1,
+                          child: Text(_sectionLabel(section.$1)),
+                        ),
+                    ],
+                    onChanged: _busy
+                        ? null
+                        : (value) => _updateAttachmentSection(index, value),
+                  ),
+                  DropdownButtonFormField<_AttachmentPosition>(
+                    initialValue: attachment.position,
+                    decoration: const InputDecoration(labelText: 'Placement'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: _AttachmentPosition.beforeText,
+                        child: Text('Before section text'),
+                      ),
+                      DropdownMenuItem(
+                        value: _AttachmentPosition.afterText,
+                        child: Text('After section text'),
+                      ),
+                    ],
+                    onChanged: _busy
+                        ? null
+                        : (value) => _updateAttachmentPosition(index, value),
+                  ),
+                ],
               ),
             ),
             IconButton(
-              tooltip: 'Remove image',
-              onPressed: _busy ? null : () => _removeImage(index),
+              tooltip: 'Remove attachment',
+              onPressed: _busy ? null : () => _removeAttachment(index),
               icon: const Icon(Icons.delete_outline),
             ),
           ],
@@ -594,50 +1000,81 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
     );
   }
 
-  Future<void> _pickImages() async {
+  Future<void> _pickAttachments() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
+        type: FileType.any,
         allowMultiple: true,
         withData: true,
       );
       if (!mounted || result == null) return;
 
-      final availableSlots = _maxReportImages - _attachments.length;
-      final selectedFiles = result.files.take(availableSlots);
-      final added = <_ReportImageAttachment>[];
-      for (final file in selectedFiles) {
+      final currentImageCount =
+          _attachments.where((item) => item.isImage).length;
+      var availableImageSlots = _maxReportImages - currentImageCount;
+      final added = <_ReportAttachment>[];
+      var skippedImages = 0;
+      for (final file in result.files) {
+        final extension =
+            path.extension(file.name).replaceFirst('.', '').toLowerCase();
+        final isImage = const {'gif', 'jpeg', 'jpg', 'png'}.contains(extension);
+        if (isImage && availableImageSlots == 0) {
+          skippedImages++;
+          continue;
+        }
         final bytes = file.bytes;
         if (bytes == null || bytes.isEmpty) {
-          throw StateError('Could not read the selected image: ${file.name}');
+          throw StateError('Could not read the selected file: ${file.name}');
         }
         added.add(
-          _ReportImageAttachment(
+          _ReportAttachment(
             name: file.name,
             bytes: bytes,
             description: TextEditingController(),
+            extension: extension,
+            section: _reportContentSections[2].$1,
           ),
         );
+        if (isImage) availableImageSlots--;
       }
 
       if (added.isNotEmpty) {
         setState(() => _attachments.addAll(added));
       }
-      if (result.files.length > availableSlots) {
+      if (skippedImages > 0) {
         showToolkitMessage(
           context,
-          'Added $availableSlots image(s). Reports support up to '
+          'Skipped $skippedImages image(s). Reports support up to '
           '$_maxReportImages images.',
         );
       }
     } catch (error) {
       if (mounted) {
-        showToolkitMessage(context, 'Could not add images: $error');
+        showToolkitMessage(context, 'Could not add report attachments: $error');
       }
     }
   }
 
-  void _removeImage(int index) {
+  void _updateAttachmentSection(int index, String? section) {
+    if (section == null) return;
+    final attachment = _attachments[index];
+    setState(() {
+      _attachments[index] = attachment.copyWith(section: section);
+    });
+  }
+
+  void _updateAttachmentPosition(
+    int index,
+    _AttachmentPosition? position,
+  ) {
+    if (position == null) return;
+    final attachment = _attachments[index];
+    setState(() {
+      _attachments[index] = attachment.copyWith(position: position);
+    });
+  }
+
+  void _removeAttachment(int index) {
     final attachment = _attachments.removeAt(index);
     attachment.description.dispose();
     setState(() {});
@@ -680,16 +1117,159 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
         '${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
     setState(() {});
   }
+
+  String _sectionLabel(String section) => _sectionLabels[section]!;
+
+  Future<void> _renameSection(String section) async {
+    var newLabel = _sectionLabel(section);
+    final label = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename report section'),
+        content: TextFormField(
+          initialValue: newLabel,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Section name'),
+          onChanged: (value) => newLabel = value,
+          onFieldSubmitted: (value) => Navigator.of(context).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(newLabel),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final updatedLabel = label?.trim();
+    if (!mounted || updatedLabel == null) return;
+    if (updatedLabel.isEmpty) {
+      showToolkitMessage(context, 'Section name cannot be empty.');
+      return;
+    }
+    if (_sectionLabels.entries.any(
+      (entry) =>
+          entry.key != section &&
+          entry.value.toLowerCase() == updatedLabel.toLowerCase(),
+    )) {
+      showToolkitMessage(context, 'Each section must have a unique name.');
+      return;
+    }
+    setState(() => _sectionLabels[section] = updatedLabel);
+  }
+
+  Widget _buildHiddenSections() => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Hidden report sections',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              for (final section in _reportContentSections)
+                if (_hiddenSections.contains(section.$1))
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(_sectionLabel(section.$1)),
+                    trailing: IconButton(
+                      tooltip: 'Restore ${_sectionLabel(section.$1)}',
+                      onPressed: _busy
+                          ? null
+                          : () => setState(
+                                () => _hiddenSections.remove(section.$1),
+                              ),
+                      icon: const Icon(Icons.restore),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
 }
 
-class _ReportImageAttachment {
-  const _ReportImageAttachment({
+enum _SignatureType {
+  typed('Typed name'),
+  freehand('Freehand drawing');
+
+  const _SignatureType(this.label);
+
+  final String label;
+}
+
+class _SignaturePadPainter extends CustomPainter {
+  const _SignaturePadPainter(this.strokes);
+
+  final List<List<Offset>> strokes;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pen = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+
+    for (final stroke in strokes) {
+      if (stroke.isEmpty) continue;
+      final path = Path()
+        ..moveTo(stroke.first.dx * size.width, stroke.first.dy * size.height);
+      for (final point in stroke.skip(1)) {
+        path.lineTo(point.dx * size.width, point.dy * size.height);
+      }
+      if (stroke.length == 1) {
+        canvas.drawCircle(
+          Offset(stroke.first.dx * size.width, stroke.first.dy * size.height),
+          pen.strokeWidth / 2,
+          Paint()..color = pen.color,
+        );
+      } else {
+        canvas.drawPath(path, pen);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SignaturePadPainter oldDelegate) => true;
+}
+
+enum _AttachmentPosition { beforeText, afterText }
+
+class _ReportAttachment {
+  const _ReportAttachment({
     required this.name,
     required this.bytes,
     required this.description,
+    required this.extension,
+    required this.section,
+    this.position = _AttachmentPosition.afterText,
   });
 
   final String name;
   final Uint8List bytes;
   final TextEditingController description;
+  final String extension;
+  final String section;
+  final _AttachmentPosition position;
+
+  bool get isImage => const {'gif', 'jpeg', 'jpg', 'png'}.contains(extension);
+
+  _ReportAttachment copyWith({
+    String? section,
+    _AttachmentPosition? position,
+  }) =>
+      _ReportAttachment(
+        name: name,
+        bytes: bytes,
+        description: description,
+        extension: extension,
+        section: section ?? this.section,
+        position: position ?? this.position,
+      );
 }

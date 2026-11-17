@@ -50,6 +50,8 @@ void main() {
 
     expect(find.text('ZIONGZOU - Technician Toolkit'), findsOneWidget);
     expect(find.textContaining('AHEAD AFRICA SOLUTION LTD |'), findsOneWidget);
+    expect(find.text('Performance'), findsNothing);
+    expect(find.text('System Health'), findsNothing);
 
     await tester.tap(find.byIcon(Icons.wifi_tethering_outlined).first);
     await tester.pumpAndSettle();

@@ -49,7 +49,9 @@ int? _readMetric(int Function() read) {
   }
 }
 
-Future<SystemSnapshot> readSystemSnapshot() async {
+Future<SystemSnapshot> readSystemSnapshot({
+  bool includePerformanceMetrics = true,
+}) async {
   final info = await DeviceInfoPlugin().deviceInfo;
   var os = Platform.operatingSystem;
   var version = Platform.operatingSystemVersion;
@@ -84,11 +86,18 @@ Future<SystemSnapshot> readSystemSnapshot() async {
     architecture = info.arch;
   }
 
-  var memoryTotal = _readMetric(SysInfo.getTotalPhysicalMemory);
-  var memoryFree = _readMetric(SysInfo.getAvailablePhysicalMemory);
-  var diskTotal = _readMetric(SysInfo.getTotalStorage);
-  var diskFree = _readMetric(SysInfo.getFreeStorage);
-  if (Platform.isWindows &&
+  var memoryTotal = includePerformanceMetrics
+      ? _readMetric(SysInfo.getTotalPhysicalMemory)
+      : null;
+  var memoryFree = includePerformanceMetrics
+      ? _readMetric(SysInfo.getAvailablePhysicalMemory)
+      : null;
+  var diskTotal =
+      includePerformanceMetrics ? _readMetric(SysInfo.getTotalStorage) : null;
+  var diskFree =
+      includePerformanceMetrics ? _readMetric(SysInfo.getFreeStorage) : null;
+  if (includePerformanceMetrics &&
+      Platform.isWindows &&
       (memoryTotal == null ||
           memoryFree == null ||
           diskTotal == null ||
@@ -100,7 +109,9 @@ Future<SystemSnapshot> readSystemSnapshot() async {
     diskFree ??= fallback.$4;
   }
   var processor = _readProcessor();
-  if (Platform.isWindows && processor == 'Unavailable') {
+  if (includePerformanceMetrics &&
+      Platform.isWindows &&
+      processor == 'Unavailable') {
     processor = await _readWindowsProcessor();
   }
   return SystemSnapshot(
@@ -114,7 +125,8 @@ Future<SystemSnapshot> readSystemSnapshot() async {
     freeRam: memoryFree,
     totalDisk: diskTotal,
     freeDisk: diskFree,
-    cpuUsage: await _readCpuUsage(),
+    cpuUsage:
+        includePerformanceMetrics ? await _readCpuUsage() : null,
   );
 }
 

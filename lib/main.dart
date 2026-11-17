@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme.dart';
+import 'core/company_branding.dart';
 import 'core/toolkit_utils.dart';
 import 'features/cmd/cmd_page.dart';
 import 'features/dashboard/dashboard_page.dart';
@@ -11,8 +12,7 @@ import 'features/shortcuts/shortcuts_page.dart';
 import 'features/tools/tools_page.dart';
 
 const _footer =
-    'AHEAD AFRICA SOLUTION LTD | Garden Ave & Ohio Street, Dar es-Salaam 11101 | '
-    '+255 690 255 556 | GPS -6.82235,39.27704';
+    '$companyName | $companyAddress | $companyPhone | $companyWebsite';
 
 const _navigation = <(String, IconData)>[
   ('Home', Icons.dashboard_outlined),
@@ -77,7 +77,7 @@ class _ZiongZouAppState extends State<ZiongZouApp> {
         activity = 'Quick action: Wi-Fi profile instructions';
         commands = 'netsh wlan show profiles';
       case 'system':
-        tab = 4;
+        tab = 0;
         toolTab = 0;
         activity = 'Quick action: System information';
         commands = 'systeminfo && wmic cpu get name';
@@ -173,7 +173,6 @@ class _ZiongZouAppState extends State<ZiongZouApp> {
                             initialTab: _toolTab,
                             initialQuery: _query,
                             revision: _revision,
-                            active: _tab == 4,
                           ),
                         ],
                       ),

@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme.dart';
+import '../boq/boq_generator_page.dart';
 import '../knowledge/knowledge_page.dart';
 import '../mobile/mobile_page.dart';
+import '../proposal/proposal_generator_page.dart';
 import '../report/report_generator_page.dart';
 import '../scripts/scripts_page.dart';
-import '../system/system_monitor_page.dart';
 
 class ToolsPage extends StatefulWidget {
   const ToolsPage({
@@ -15,14 +16,12 @@ class ToolsPage extends StatefulWidget {
     required this.initialTab,
     required this.initialQuery,
     required this.revision,
-    required this.active,
   });
 
   final SharedPreferences preferences;
   final int initialTab;
   final String initialQuery;
   final int revision;
-  final bool active;
 
   @override
   State<ToolsPage> createState() => _ToolsPageState();
@@ -32,11 +31,12 @@ class _ToolsPageState extends State<ToolsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _controller;
   static const _tabs = [
-    'System',
     'Scripts',
     'Mobile',
     'Knowledge',
     'Reports',
+    'Proposal',
+    'BOQ',
   ];
 
   @override
@@ -47,11 +47,6 @@ class _ToolsPageState extends State<ToolsPage>
       vsync: this,
       initialIndex: widget.initialTab.clamp(0, _tabs.length - 1),
     );
-    _controller.addListener(_onTabChanged);
-  }
-
-  void _onTabChanged() {
-    if (mounted) setState(() {});
   }
 
   @override
@@ -85,12 +80,12 @@ class _ToolsPageState extends State<ToolsPage>
             child: TabBarView(
               controller: _controller,
               children: [
-                SystemMonitorPage(
-                    active: widget.active && _controller.index == 0),
                 ScriptsPage(initialQuery: widget.initialQuery),
                 MobilePage(initialQuery: widget.initialQuery),
                 KnowledgePage(initialQuery: widget.initialQuery),
                 ReportGeneratorPage(preferences: widget.preferences),
+                ProposalGeneratorPage(preferences: widget.preferences),
+                BoqGeneratorPage(preferences: widget.preferences),
               ],
             ),
           ),

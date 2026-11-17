@@ -51,6 +51,8 @@ const commandCategories = <String>[
   'Repair',
   'Power',
   'Advanced',
+  'Activation',
+  'Software',
 ];
 
 final _commandGroups = <_CommandGroup>[
@@ -567,6 +569,52 @@ final _commandGroups = <_CommandGroup>[
       ),
     ],
   ),
+  _CommandGroup(
+    category: 'Activation',
+    example: 'Windows is in notification mode or is permanently activated.',
+    useCaseSw:
+        'Kagua au jaribu kuwezesha Windows kwa leseni halali iliyopo. Usitumie zana zisizo rasmi za activation.',
+    entries: const [
+      (
+        'slmgr.vbs /xpr',
+        'Check Windows activation expiration status',
+        CommandRisk.safe
+      ),
+      (
+        'slmgr.vbs /ato',
+        'Request Windows activation using an existing valid license',
+        CommandRisk.medium
+      ),
+    ],
+  ),
+  _CommandGroup(
+    category: 'Software',
+    example: 'Name: 7-Zip\nId: 7zip.7zip\nSource: winget',
+    useCaseSw:
+        'Tumia WinGet kupata programu kutoka chanzo kinachoaminika; hakiki jina la mchapishaji na kitambulisho cha kifurushi kabla ya kusakinisha.',
+    entries: const [
+      (
+        'winget search 7zip',
+        'Search WinGet for 7-Zip packages',
+        CommandRisk.safe
+      ),
+      (
+        'winget show --id 7zip.7zip --exact',
+        'Review the exact 7-Zip package details before installation',
+        CommandRisk.safe
+      ),
+      (
+        'winget install --id 7zip.7zip --exact --source winget',
+        'Install 7-Zip from the WinGet source',
+        CommandRisk.medium
+      ),
+      (
+        'winget list --name 7-Zip',
+        'Check whether 7-Zip is installed',
+        CommandRisk.safe
+      ),
+    ],
+  ),
 ];
 
 final commandsData = <CommandEntry>[
@@ -598,6 +646,9 @@ String _swahiliCommandDescription(String category) {
     'Files' => 'Tumia amri hii kutafuta au kukagua faili.',
     'Repair' => 'Tumia amri hii kuchunguza au kurekebisha Windows.',
     'Power' => 'Tumia amri hii kukagua matumizi ya nishati.',
+    'Activation' => 'Tumia amri hii kwa Windows yenye leseni halali pekee.',
+    'Software' =>
+      'Kagua mchapishaji na kifurushi cha programu kabla ya kusakinisha.',
     _ => 'Tumia amri hii kwa uchunguzi wa kina wa mfumo.',
   };
 }

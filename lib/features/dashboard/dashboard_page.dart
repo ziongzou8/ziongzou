@@ -3,7 +3,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/system_snapshot.dart';
 import '../../core/theme.dart';
 import '../../core/toolkit_utils.dart';
 import '../../data/cmd_data.dart';
@@ -11,6 +10,7 @@ import '../../data/knowledge_base_data.dart';
 import '../../data/mobile_tricks_data.dart';
 import '../../data/scripts_data.dart';
 import '../../data/shortcuts_data.dart';
+import '../system/system_monitor_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({
@@ -32,11 +32,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   final _search = TextEditingController();
-  Timer? _infoTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
-  Future<SystemSnapshot>? _snapshot;
-  SystemSnapshot? _currentSnapshot;
-  bool _systemUnavailable = false;
   List<ConnectivityResult> _connectivity = const [ConnectivityResult.none];
   bool _connectivityUnavailable = false;
 
@@ -56,8 +52,6 @@ class _DashboardPageState extends State<DashboardPage> {
       if (widget.active) {
         _activate();
       } else {
-        _infoTimer?.cancel();
-        _infoTimer = null;
         _connectivitySubscription?.cancel();
         _connectivitySubscription = null;
       }
@@ -65,11 +59,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _activate() {
-    _refreshSystem();
     _watchConnectivity();
-    _infoTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) _refreshSystem();
-    });
   }
 
   Future<void> _watchConnectivity() async {
@@ -99,26 +89,9 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  void _refreshSystem() {
-    final request = readSystemSnapshot();
-    setState(() {
-      _snapshot = request;
-      _systemUnavailable = false;
-    });
-    request.then(
-      (value) {
-        if (mounted) setState(() => _currentSnapshot = value);
-      },
-      onError: (Object _) {
-        if (mounted) setState(() => _systemUnavailable = true);
-      },
-    );
-  }
-
   @override
   void dispose() {
     _search.dispose();
-    _infoTimer?.cancel();
     _connectivitySubscription?.cancel();
     super.dispose();
   }
@@ -148,12 +121,12 @@ class _DashboardPageState extends State<DashboardPage> {
         (e) => e.values.join(' '));
     addMatches(
         cmdData, 2, 0, (e) => e['cmd'] as String, (e) => e.values.join(' '));
-    addMatches(scriptsData, 4, 2, (e) => e['name'] as String,
+    addMatches(scriptsData, 4, 0, (e) => e['name'] as String,
         (e) => e.values.join(' '));
     addMatches(
       knowledgeBaseData,
       4,
-      3,
+      2,
       (e) => e['title'] as String,
       (e) => e.values.join(' '),
     );
@@ -282,16 +255,10 @@ class _DashboardPageState extends State<DashboardPage> {
                   onTap: () => widget.onSearchOpen('', 2, 0),
                 ),
                 _StatCard(
-                  label: 'System Health',
-                  value: _healthLabel,
-                  icon: Icons.monitor_heart_outlined,
-                  onTap: () => widget.onSearchOpen('', 4, 0),
-                ),
-                _StatCard(
                   label: 'Toolkit items',
                   value: '$toolkitCount',
                   icon: Icons.inventory_2_outlined,
-                  onTap: () => widget.onSearchOpen('', 4, 1),
+                  onTap: () => widget.onSearchOpen('', 4, 0),
                 ),
               ],
             );
@@ -323,52 +290,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ],
         ),
-        Text('Live System Information',
-            style: Theme.of(context).textTheme.titleLarge),
-        FutureBuilder<SystemSnapshot>(
-          future: _snapshot,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Card(
-                child: ListTile(
-                  leading: const Icon(Icons.error_outline),
-                  title: const Text('System information unavailable'),
-                  subtitle: Text('${snapshot.error}'),
-                  trailing: IconButton(
-                    onPressed: _refreshSystem,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ),
-              );
-            }
-            final value = snapshot.data;
-            return Card(
-              child: Column(
-                children: [
-                  _InfoRow(
-                      'Operating system',
-                      value == null
-                          ? 'Reading…'
-                          : '${value.os} ${value.version}'),
-                  _InfoRow('Hostname', value?.hostname ?? 'Reading…'),
-                  _InfoRow('Processor', value?.processor ?? 'Reading…'),
-                  _InfoRow(
-                    'RAM total / available',
-                    value == null
-                        ? 'Reading…'
-                        : '${formatBytes(value.totalRam)} / ${formatBytes(value.freeRam)}',
-                  ),
-                  _InfoRow(
-                    'Storage total / available',
-                    value == null
-                        ? 'Reading…'
-                        : '${formatBytes(value.totalDisk)} / ${formatBytes(value.freeDisk)}',
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
+        SystemMonitorPage(active: widget.active, embedded: true),
         Text('Recent Activity', style: Theme.of(context).textTheme.titleLarge),
         Card(
           child: FutureBuilder<List<String>>(
@@ -407,28 +329,6 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       ],
     );
-  }
-
-  String get _healthLabel {
-    final value = _currentSnapshot;
-    if (_systemUnavailable) return 'Unavailable';
-    if (value == null) return 'Checking';
-    if ((value.cpuUsage != null && value.cpuUsage! >= 95) ||
-        (value.ramUsage != null && value.ramUsage! >= .95) ||
-        (value.diskUsage != null && value.diskUsage! >= .98)) {
-      return 'Attention';
-    }
-    if (value.cpuUsage == null &&
-        value.ramUsage == null &&
-        value.diskUsage == null) {
-      return 'Unavailable';
-    }
-    if ((value.cpuUsage != null && value.cpuUsage! >= 80) ||
-        (value.ramUsage != null && value.ramUsage! >= .85) ||
-        (value.diskUsage != null && value.diskUsage! >= .9)) {
-      return 'Monitor';
-    }
-    return 'Normal';
   }
 }
 
@@ -501,22 +401,5 @@ class _QuickAction extends StatelessWidget {
         onPressed: onTap,
         icon: Icon(icon),
         label: Text(title),
-      );
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-        dense: true,
-        title: Text(label),
-        trailing: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 250),
-          child: Text(value, textAlign: TextAlign.end),
-        ),
       );
 }

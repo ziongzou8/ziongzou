@@ -9,7 +9,26 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
+  "${CMAKE_CURRENT_BINARY_DIR}/app_icon_resource.c"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
+)
+
+find_program(GLIB_COMPILE_RESOURCES glib-compile-resources)
+if(NOT GLIB_COMPILE_RESOURCES)
+  message(FATAL_ERROR "glib-compile-resources is required to embed the app icon.")
+endif()
+
+add_custom_command(
+  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/app_icon_resource.c"
+  COMMAND "${GLIB_COMPILE_RESOURCES}"
+    "--target=${CMAKE_CURRENT_BINARY_DIR}/app_icon_resource.c"
+    --generate-source
+    "--sourcedir=${CMAKE_SOURCE_DIR}/../assets"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.gresource.xml"
+  DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.gresource.xml"
+    "${CMAKE_SOURCE_DIR}/../assets/ziongzou_app_icon.png"
+  VERBATIM
 )
 
 # Apply the standard set of build settings. This can be removed for applications

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../core/toolkit_utils.dart';
+import '../../core/windows_command_runner.dart';
 import '../../data/scripts_data.dart';
 
 class ScriptsPage extends StatefulWidget {
@@ -41,7 +42,7 @@ class _ScriptsPageState extends State<ScriptsPage> {
     return PageScaffold(
       title: 'Scripts Library',
       subtitle:
-          '${scriptsData.length} reviewed command snippets · copy, inspect, then run manually',
+          '${scriptsData.length} reviewed command snippets · inspect and confirm before running',
       children: [
         TextField(
           controller: _search,
@@ -103,6 +104,25 @@ class _ScriptsPageState extends State<ScriptsPage> {
                 tooltip: 'Execution instructions and confirmation',
                 onPressed: () => _instructions(context, entry),
                 icon: const Icon(Icons.info_outline),
+              ),
+              Tooltip(
+                message: risk == 'Advanced'
+                    ? 'Advanced scripts remain copy-only.'
+                    : 'Run after confirmation',
+                child: TextButton.icon(
+                  onPressed: risk == 'Advanced'
+                      ? null
+                      : () => runWindowsCommand(
+                            context,
+                            title: entry['name']!,
+                            command: entry['scriptContent']!,
+                            riskLevel: risk,
+                            requiresAdministrator:
+                                entry['requiredPermissions'] == 'Admin',
+                          ),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Run'),
+                ),
               ),
               IconButton(
                 tooltip: 'Copy script',

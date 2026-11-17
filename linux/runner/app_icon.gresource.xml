@@ -1,0 +1,5 @@
+<gresources>
+  <gresource prefix="/com/example/ziongzou">
+    <file alias="app_icon.png">ziongzou_app_icon.png</file>
+  </gresource>
+</gresources>
