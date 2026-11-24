@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:system_info2/system_info2.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'package:system_info2/system_info2.dart'
+    if (dart.library.js_interop) 'system_info2_web_stub.dart';
 
 class SystemSnapshot {
   const SystemSnapshot({
@@ -53,11 +56,11 @@ Future<SystemSnapshot> readSystemSnapshot({
   bool includePerformanceMetrics = true,
 }) async {
   final info = await DeviceInfoPlugin().deviceInfo;
-  var os = Platform.operatingSystem;
-  var version = Platform.operatingSystemVersion;
+  var os = kIsWeb ? 'Web' : Platform.operatingSystem;
+  var version = kIsWeb ? 'Unavailable' : Platform.operatingSystemVersion;
   var build = 'Unavailable';
   var hostname = 'Unavailable';
-  var architecture = Platform.version;
+  var architecture = kIsWeb ? 'Web browser' : Platform.version;
 
   if (info is AndroidDeviceInfo) {
     os = 'Android';
@@ -86,17 +89,20 @@ Future<SystemSnapshot> readSystemSnapshot({
     architecture = info.arch;
   }
 
-  var memoryTotal = includePerformanceMetrics
+  var memoryTotal = includePerformanceMetrics && !kIsWeb
       ? _readMetric(SysInfo.getTotalPhysicalMemory)
       : null;
-  var memoryFree = includePerformanceMetrics
+  var memoryFree = includePerformanceMetrics && !kIsWeb
       ? _readMetric(SysInfo.getAvailablePhysicalMemory)
       : null;
-  var diskTotal =
-      includePerformanceMetrics ? _readMetric(SysInfo.getTotalStorage) : null;
-  var diskFree =
-      includePerformanceMetrics ? _readMetric(SysInfo.getFreeStorage) : null;
+  var diskTotal = includePerformanceMetrics && !kIsWeb
+      ? _readMetric(SysInfo.getTotalStorage)
+      : null;
+  var diskFree = includePerformanceMetrics && !kIsWeb
+      ? _readMetric(SysInfo.getFreeStorage)
+      : null;
   if (includePerformanceMetrics &&
+      !kIsWeb &&
       Platform.isWindows &&
       (memoryTotal == null ||
           memoryFree == null ||
@@ -108,8 +114,9 @@ Future<SystemSnapshot> readSystemSnapshot({
     diskTotal ??= fallback.$3;
     diskFree ??= fallback.$4;
   }
-  var processor = _readProcessor();
+  var processor = kIsWeb ? 'Unavailable' : _readProcessor();
   if (includePerformanceMetrics &&
+      !kIsWeb &&
       Platform.isWindows &&
       processor == 'Unavailable') {
     processor = await _readWindowsProcessor();
@@ -126,7 +133,7 @@ Future<SystemSnapshot> readSystemSnapshot({
     totalDisk: diskTotal,
     freeDisk: diskFree,
     cpuUsage:
-        includePerformanceMetrics ? await _readCpuUsage() : null,
+        includePerformanceMetrics && !kIsWeb ? await _readCpuUsage() : null,
   );
 }
 

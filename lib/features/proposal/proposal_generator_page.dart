@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/company_branding.dart';
 import '../../core/document_export_utils.dart';
 import '../../core/toolkit_utils.dart';
 import 'proposal_document.dart';
@@ -34,6 +35,7 @@ class _ProposalGeneratorPageState extends State<ProposalGeneratorPage> {
   };
   final Set<String> _hiddenSections = {};
   bool _busy = false;
+  CompanyBrand _companyBrand = CompanyBrand.aheadAfrica;
   String? _lastSavedPath;
 
   static const _fieldSpecs = <(String, String, int)>[
@@ -92,7 +94,10 @@ class _ProposalGeneratorPageState extends State<ProposalGeneratorPage> {
     if (_busy || !_form.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      final logoBytes = (await rootBundle.load('assets/ahead_africa_logo.png'))
+      final company = companyProfileFor(_companyBrand);
+      final logoBytes =
+          (await rootBundle.load(company.logoAsset)).buffer.asUint8List();
+      final watermarkBytes = (await rootBundle.load(company.watermarkAsset))
           .buffer
           .asUint8List();
       final attachments = [
@@ -102,6 +107,8 @@ class _ProposalGeneratorPageState extends State<ProposalGeneratorPage> {
       final bytes = await createProposalDocument(
         values: _values(),
         logoBytes: logoBytes,
+        watermarkBytes: watermarkBytes,
+        company: company,
         attachments: attachments,
         sectionLabels: _sectionLabels,
         hiddenSections: _hiddenSections,
@@ -427,6 +434,12 @@ class _ProposalGeneratorPageState extends State<ProposalGeneratorPage> {
             key: _form,
             child: Column(
               children: [
+                CompanyBrandSelector(
+                  value: _companyBrand,
+                  enabled: !_busy,
+                  onChanged: (brand) => setState(() => _companyBrand = brand),
+                ),
+                const SizedBox(height: 10),
                 for (final spec in _fieldSpecs)
                   if (!_hiddenSections.contains(spec.$2))
                     Padding(

@@ -24,6 +24,7 @@ dependencies:
   path: ^1.8.3
   archive: ^4.6.0
   docx_creator: ^1.4.0
+  image: ^4.3.0
   open_filex: ^5.0.0
 dev_dependencies:
   flutter_test:
@@ -35,6 +36,13 @@ flutter:
   uses-material-design: true
   assets:
     - assets/ahead_africa_logo.png
+    - assets/flashnet_header_logo.png
+    - assets/flashnet_logo.png
+    - assets/flashnet_watermark_source.png
+  fonts:
+    - family: Edwardian Script ITC
+      fonts:
+        - asset: assets/fonts/ITCEDSCR.TTF
 
 flutter_launcher_icons:
   android: false

@@ -15,6 +15,7 @@ activity, and service-report history are stored locally with
   with C++**
 - Android deployment: Android SDK/toolchain and a connected device with USB
   debugging enabled
+- Web development: Google Chrome
 
 ## Run
 
@@ -22,7 +23,11 @@ activity, and service-report history are stored locally with
 flutter pub get
 flutter run -d windows
 flutter run -d SHG08
+flutter run -d chrome
 ```
+
+To serve the web app without launching a browser, run
+`flutter run -d web-server --web-port 8080` and open `http://localhost:8080`.
 
 For Android, the app requests network access to report connectivity and perform
 optional public-IP and ISP lookups. ISP is estimated from the public IP through
@@ -35,6 +40,7 @@ available offline.
 ```powershell
 flutter build apk --release
 flutter build windows --release
+flutter build web --release
 ```
 
 ## Safety and privacy
@@ -45,7 +51,8 @@ flutter build windows --release
 - Saved Wi-Fi profile commands are generated for authorized local
   troubleshooting. The app does not extract or display saved passwords.
 - System resource metrics are read from the local operating system. A metric
-  unsupported by the platform is shown as unavailable rather than estimated.
+  unsupported by the platform, including browser-based web builds, is shown as
+  unavailable rather than estimated.
 - Generated service reports are saved to the platform downloads directory when
   available, otherwise to the app documents directory. Reports can also be
   shared or printed. Technicians can attach up to 10 photos with descriptions;

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 import '../../core/company_branding.dart';
+import '../../core/document_watermark.dart';
 
 class BoqLineItem {
   const BoqLineItem({
@@ -30,6 +31,8 @@ Uint8List createBoqWorkbook({
   required String currency,
   required List<BoqLineItem> items,
   required Uint8List logoBytes,
+  Uint8List? watermarkBytes,
+  CompanyProfile company = aheadAfricaProfile,
   List<String> customColumns = const [],
 }) {
   final populatedItems = items
@@ -49,9 +52,17 @@ Uint8List createBoqWorkbook({
   final lastColumn = _columnName(6 + activeCustomColumns.length);
 
   final totalRow = 6 + populatedItems.length;
+  final footerRows = [
+    company.address,
+    if (company.phone != null) 'Phone: ${company.phone}',
+    company.website,
+  ];
+  final pageWatermark = createDiagonalLogoWatermark(
+    watermarkBytes ?? logoBytes,
+    opacity: company.watermarkOpacity,
+  );
   final addressRow = totalRow + 1;
-  final phoneRow = totalRow + 2;
-  final websiteRow = totalRow + 3;
+  final websiteRow = totalRow + footerRows.length;
   final grandTotal =
       populatedItems.fold<double>(0, (total, item) => total + item.amount);
   final archive = Archive()
@@ -110,10 +121,11 @@ Uint8List createBoqWorkbook({
           currency: currency,
           items: populatedItems,
           customColumns: activeCustomColumns,
+          company: company,
+          footerRows: footerRows,
           lastColumn: lastColumn,
           totalRow: totalRow,
           addressRow: addressRow,
-          phoneRow: phoneRow,
           websiteRow: websiteRow,
           grandTotal: grandTotal,
         ),
@@ -125,21 +137,27 @@ Uint8List createBoqWorkbook({
         '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${_xml(companyWebsite)}" TargetMode="External"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${_xml(company.website)}" TargetMode="External"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/watermark.png"/>
 </Relationships>''',
       ),
     )
-    ..addFile(ArchiveFile.string('xl/drawings/drawing1.xml', _drawingXml))
+    ..addFile(
+      ArchiveFile.string('xl/drawings/drawing1.xml', _drawingXml(company)),
+    )
     ..addFile(
       ArchiveFile.string(
         'xl/drawings/_rels/drawing1.xml.rels',
         '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/ahead_africa_logo.png"/>
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${company.logoFileName}"/>
 </Relationships>''',
       ),
     )
-    ..addFile(ArchiveFile.bytes('xl/media/ahead_africa_logo.png', logoBytes));
+    ..addFile(
+      ArchiveFile.bytes('xl/media/${company.logoFileName}', logoBytes),
+    )
+    ..addFile(ArchiveFile.bytes('xl/media/watermark.png', pageWatermark));
 
   return Uint8List.fromList(ZipEncoder().encode(archive));
 }
@@ -152,10 +170,11 @@ String _worksheetXml({
   required String currency,
   required List<BoqLineItem> items,
   required List<String> customColumns,
+  required CompanyProfile company,
+  required List<String> footerRows,
   required String lastColumn,
   required int totalRow,
   required int addressRow,
-  required int phoneRow,
   required int websiteRow,
   required double grandTotal,
 }) {
@@ -175,7 +194,7 @@ String _worksheetXml({
     ],
     [
       'Unit rate ($currency)',
-      companyName,
+      company.name,
       'GRAND TOTAL',
       for (final item in items) item.unitRate.toString(),
     ],
@@ -198,7 +217,7 @@ String _worksheetXml({
   ];
 
   final rows = <String>[
-    '<row r="1" ht="58" customHeight="1">${_textCell('E1', companyName, 1)}</row>',
+    '<row r="1" ht="58" customHeight="1">${_textCell('E1', company.name, 1)}</row>',
     '<row r="2" ht="30" customHeight="1">${_textCell('E2', 'BILL OF QUANTITIES', 1)}</row>',
     '<row r="3">${_textCell('A3', 'Reference: $reference')}${_textCell('D3', 'Date: $date')}</row>',
     '<row r="4">${_textCell('A4', 'Project: $projectTitle')}${_textCell('D4', 'Client: $client')}</row>',
@@ -235,17 +254,14 @@ String _worksheetXml({
     );
   }
 
-  rows
-    ..add(
-      '<row r="$totalRow">${_textCell('E$totalRow', 'GRAND TOTAL', 1)}'
-      '${_formulaCell('F$totalRow', 'SUM(F6:F${totalRow - 1})', grandTotal, 3)}</row>',
-    )
-    ..add(
-        '<row r="$addressRow">${_textCell('A$addressRow', companyAddress)}</row>')
-    ..add(
-        '<row r="$phoneRow">${_textCell('A$phoneRow', 'Phone: $companyPhone')}</row>')
-    ..add(
-        '<row r="$websiteRow">${_textCell('A$websiteRow', companyWebsite)}</row>');
+  rows.add(
+    '<row r="$totalRow">${_textCell('E$totalRow', 'GRAND TOTAL', 1)}'
+    '${_formulaCell('F$totalRow', 'SUM(F6:F${totalRow - 1})', grandTotal, 3)}</row>',
+  );
+  for (var index = 0; index < footerRows.length; index++) {
+    final row = addressRow + index;
+    rows.add('<row r="$row">${_textCell('A$row', footerRows[index])}</row>');
+  }
 
   return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -259,12 +275,16 @@ String _worksheetXml({
   ].join()}</cols>
 <sheetData>${rows.join()}</sheetData>
 <autoFilter ref="A5:$lastColumn${totalRow - 1}"/>
-<mergeCells count="3"><mergeCell ref="A$addressRow:$lastColumn$addressRow"/><mergeCell ref="A$phoneRow:$lastColumn$phoneRow"/><mergeCell ref="A$websiteRow:$lastColumn$websiteRow"/></mergeCells>
-<hyperlinks><hyperlink ref="A$websiteRow" r:id="rId2" display="${_xml(companyWebsite)}"/></hyperlinks>
+<mergeCells count="${footerRows.length}">${[
+    for (var index = 0; index < footerRows.length; index++)
+      '<mergeCell ref="A${addressRow + index}:$lastColumn${addressRow + index}"/>',
+  ].join()}</mergeCells>
+<hyperlinks><hyperlink ref="A$websiteRow" r:id="rId2" display="${_xml(company.website)}"/></hyperlinks>
 <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
 <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
-<headerFooter><oddFooter>&amp;L${_xml(companyAddress)}&amp;C${_xml(companyPhone)}&amp;R${_xml(companyWebsite)}</oddFooter></headerFooter>
+<headerFooter><oddFooter>&amp;L${_xml(company.address)}${company.phone == null ? '' : '&amp;C${_xml(company.phone!)}'}&amp;R${_xml(company.website)}</oddFooter></headerFooter>
 <drawing r:id="rId1"/>
+<picture r:id="rId3"/>
 </worksheet>''';
 }
 
@@ -320,8 +340,9 @@ const _stylesXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>''';
 
-const _drawingXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+String _drawingXml(CompanyProfile company) =>
+    '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
-<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="AHEAD AFRICA logo" descr="AHEAD AFRICA SOLUTION LTD"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="3228975" cy="1076325"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>
+<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="${_xml(company.name)} logo" descr="${_xml(company.name)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></a:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${(company.logoWidth * 15376).round()}" cy="${(company.logoHeight * 15376).round()}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>
 </xdr:wsDr>''';

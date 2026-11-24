@@ -7,6 +7,7 @@ import 'package:ziongzou/data/knowledge_base_data.dart';
 import 'package:ziongzou/data/mobile_tricks_data.dart';
 import 'package:ziongzou/data/scripts_data.dart';
 import 'package:ziongzou/data/shortcuts_data.dart';
+import 'package:ziongzou/core/company_branding.dart';
 import 'package:ziongzou/main.dart';
 
 void main() {
@@ -17,6 +18,25 @@ void main() {
       data.buffer.asUint8List().take(8),
       equals([137, 80, 78, 71, 13, 10, 26, 10]),
     );
+  });
+
+  test('Flashnet logo is bundled and brand profiles use its public details',
+      () async {
+    final data = await rootBundle.load(flashnetProfile.logoAsset);
+    expect(data.lengthInBytes, greaterThan(8));
+    expect(
+      data.buffer.asUint8List().take(8),
+      equals([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    final watermark = await rootBundle.load(flashnetProfile.watermarkAsset);
+    expect(watermark.lengthInBytes, greaterThan(8));
+    expect(
+      watermark.buffer.asUint8List().take(8),
+      equals([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    expect(flashnetProfile.address,
+        'Tower, PPF Towers, 1st Floor, Garden Avenue, Ohio St, Dar es Salaam 14300');
+    expect(flashnetProfile.website, 'https://flashnet.co.tz/');
   });
 
   test('offline catalogs have the requested content counts', () {

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:docx_creator/docx_creator.dart';
 
 import '../../core/company_branding.dart';
+import '../../core/document_watermark.dart';
 
 const proposalContentSections = <(String, String)>[
   ('Background / Problem', 'Background / Problem'),
@@ -36,28 +37,39 @@ class ProposalAttachment {
 Future<Uint8List> createProposalDocument({
   required Map<String, String> values,
   required Uint8List logoBytes,
+  Uint8List? watermarkBytes,
+  CompanyProfile company = aheadAfricaProfile,
   List<ProposalAttachment> attachments = const [],
   Map<String, String> sectionLabels = const {},
   Set<String> hiddenSections = const {},
 }) async {
+  final watermark = createDiagonalLogoWatermark(
+    watermarkBytes ?? logoBytes,
+    opacity: company.watermarkOpacity,
+  );
   final builder = DocxDocumentBuilder()
     ..section(
       pageSize: DocxPageSize.a4,
+      backgroundImage: DocxBackgroundImage.watermark(
+        bytes: watermark,
+        extension: 'png',
+        opacity: 1,
+      ),
       footer: DocxFooter(
         children: [
           DocxParagraph(
             align: DocxAlign.center,
             children: [
               DocxText(
-                '$companyAddress | $companyPhone | ',
+                '${company.address}${company.phone == null ? '' : ' | ${company.phone}'} | ',
                 fontSize: 8,
                 color: DocxColor.darkGray,
               ),
               DocxText(
-                companyWebsite,
+                company.website,
                 fontSize: 8,
                 color: DocxColor.blue,
-                href: companyWebsite,
+                href: company.website,
                 decorations: [DocxTextDecoration.underline],
               ),
             ],
@@ -69,9 +81,9 @@ Future<Uint8List> createProposalDocument({
       DocxImage(
         bytes: logoBytes,
         extension: 'png',
-        width: 210,
-        height: 70,
-        altText: companyName,
+        width: company.logoWidth,
+        height: company.logoHeight,
+        altText: company.name,
       ),
     )
     ..h1('TECHNICAL PROPOSAL')

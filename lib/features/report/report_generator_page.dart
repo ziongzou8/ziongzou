@@ -12,6 +12,7 @@ import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/company_branding.dart';
+import '../../core/document_watermark.dart';
 import '../../core/toolkit_utils.dart';
 
 const _reportContentSections = <(String, String)>[
@@ -47,6 +48,7 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
   String _status = 'Completed';
   _SignatureType _signatureType = _SignatureType.typed;
   bool _busy = false;
+  CompanyBrand _companyBrand = CompanyBrand.aheadAfrica;
   String? _lastSavedPath;
 
   static const _fieldSpecs = <(String, String, int)>[
@@ -79,6 +81,7 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
   }
 
   String _defaultValue(String key, DateTime now) {
+    if (key == 'company') return aheadAfricaProfile.name;
     if (key == 'date') return '${now.year}-${_two(now.month)}-${_two(now.day)}';
     if (key == 'time') return '${_two(now.hour)}:${_two(now.minute)}';
     if (key == 'reference') {
@@ -86,6 +89,16 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
           '${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
     }
     return '';
+  }
+
+  void _selectCompanyBrand(CompanyBrand brand) {
+    final oldName = companyProfileFor(_companyBrand).name;
+    final companyField = _fields['company']!;
+    if (companyField.text.trim().isEmpty ||
+        companyField.text.trim() == oldName) {
+      companyField.text = companyProfileFor(brand).name;
+    }
+    setState(() => _companyBrand = brand);
   }
 
   String _two(int value) => value.toString().padLeft(2, '0');
@@ -177,10 +190,21 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
     if (!_form.currentState!.validate() || !_validateSignature()) return null;
     final values = _values();
     final document = pw.Document();
-    final logoBytes = (await rootBundle.load('assets/ahead_africa_logo.png'))
-        .buffer
-        .asUint8List();
+    final company = companyProfileFor(_companyBrand);
+    final signatureFontBytes =
+        await rootBundle.load('assets/fonts/ITCEDSCR.TTF');
+    final signatureFont = pw.Font.ttf(signatureFontBytes);
+    final logoBytes =
+        (await rootBundle.load(company.logoAsset)).buffer.asUint8List();
     final logo = pw.MemoryImage(logoBytes);
+    final watermarkBytes =
+        (await rootBundle.load(company.watermarkAsset)).buffer.asUint8List();
+    final watermark = pw.MemoryImage(
+      createDiagonalLogoWatermark(
+        watermarkBytes,
+        opacity: company.watermarkOpacity,
+      ),
+    );
     final reportAttachments = [
       for (final attachment in _attachments)
         (
@@ -191,8 +215,14 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
     ];
     document.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(36),
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(36),
+          buildBackground: (_) => pw.FullPage(
+            ignoreMargins: true,
+            child: pw.Image(watermark, fit: pw.BoxFit.fill),
+          ),
+        ),
         footer: (context) => pw.Container(
           padding: const pw.EdgeInsets.only(top: 8),
           decoration: const pw.BoxDecoration(
@@ -204,7 +234,7 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                companyAddress,
+                company.address,
                 style: const pw.TextStyle(
                   fontSize: 8,
                   color: PdfColors.grey700,
@@ -213,17 +243,18 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text(
-                    'Phone: $companyPhone',
-                    style: const pw.TextStyle(
-                      fontSize: 8,
-                      color: PdfColors.grey700,
+                  if (company.phone != null)
+                    pw.Text(
+                      'Phone: ${company.phone}',
+                      style: const pw.TextStyle(
+                        fontSize: 8,
+                        color: PdfColors.grey700,
+                      ),
                     ),
-                  ),
                   pw.UrlLink(
-                    destination: companyWebsite,
+                    destination: company.website,
                     child: pw.Text(
-                      companyWebsite,
+                      company.website,
                       style: const pw.TextStyle(
                         fontSize: 8,
                         color: PdfColors.grey700,
@@ -241,8 +272,8 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
             children: [
               pw.Image(
                 logo,
-                width: 210,
-                height: 70,
+                width: company.logoWidth,
+                height: company.logoHeight,
                 fit: pw.BoxFit.contain,
               ),
               pw.SizedBox(width: 16),
@@ -322,7 +353,13 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
           ),
           pw.SizedBox(height: 6),
           switch (_signatureType) {
-            _SignatureType.typed => pw.Text(_fields['signature']!.text.trim()),
+            _SignatureType.typed => pw.Text(
+                _fields['signature']!.text.trim(),
+                style: pw.TextStyle(
+                  font: signatureFont,
+                  fontSize: 24,
+                ),
+              ),
             _SignatureType.freehand => pw.SvgImage(
                 svg: _signatureSvg(),
                 width: 360,
@@ -613,6 +650,12 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
             key: _form,
             child: Column(
               children: [
+                CompanyBrandSelector(
+                  value: _companyBrand,
+                  enabled: !_busy,
+                  onChanged: _selectCompanyBrand,
+                ),
+                const SizedBox(height: 10),
                 for (final spec
                     in _fieldSpecs.where((spec) => spec.$1 != 'signature'))
                   if (!_hiddenSections.contains(spec.$1))
@@ -826,6 +869,10 @@ class _ReportGeneratorPageState extends State<ReportGeneratorPage> {
                     decoration: const InputDecoration(
                       labelText: 'Typed signature',
                       hintText: 'Enter the technician name',
+                    ),
+                    style: const TextStyle(
+                      fontFamily: 'Edwardian Script ITC',
+                      fontSize: 24,
                     ),
                   ),
                 _SignatureType.freehand => _buildFreehandSignature(),

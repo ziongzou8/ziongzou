@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ziongzou/core/company_branding.dart';
 import 'package:ziongzou/features/report/report_generator_page.dart';
 
 Map<String, String> _reportRecord(String filePath) => {
@@ -19,6 +20,37 @@ Map<String, String> _reportRecord(String filePath) => {
     };
 
 void main() {
+  testWidgets('report branding selection updates its company identity',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReportGeneratorPage(preferences: preferences),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final companyField = find.byType(TextFormField).first;
+    expect(
+      tester.widget<TextFormField>(companyField).controller!.text,
+      aheadAfricaProfile.name,
+    );
+
+    await tester.tap(find.byType(DropdownButtonFormField<CompanyBrand>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('FLASHNET').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextFormField>(companyField).controller!.text,
+      flashnetProfile.name,
+    );
+  });
+
   testWidgets('recent report history can be cleared without deleting PDFs',
       (tester) async {
     SharedPreferences.setMockInitialValues({

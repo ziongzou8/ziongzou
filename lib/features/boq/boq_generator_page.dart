@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/company_branding.dart';
 import '../../core/document_export_utils.dart';
 import '../../core/toolkit_utils.dart';
 import 'boq_document.dart';
@@ -31,6 +32,7 @@ class _BoqGeneratorPageState extends State<BoqGeneratorPage> {
   final List<_BoqRowControllers> _items = [];
   final List<_BoqColumnController> _columns = [];
   bool _busy = false;
+  CompanyBrand _companyBrand = CompanyBrand.aheadAfrica;
   String? _lastSavedPath;
 
   @override
@@ -118,7 +120,10 @@ class _BoqGeneratorPageState extends State<BoqGeneratorPage> {
     }
     setState(() => _busy = true);
     try {
-      final logoBytes = (await rootBundle.load('assets/ahead_africa_logo.png'))
+      final company = companyProfileFor(_companyBrand);
+      final logoBytes =
+          (await rootBundle.load(company.logoAsset)).buffer.asUint8List();
+      final watermarkBytes = (await rootBundle.load(company.watermarkAsset))
           .buffer
           .asUint8List();
       final bytes = createBoqWorkbook(
@@ -143,6 +148,8 @@ class _BoqGeneratorPageState extends State<BoqGeneratorPage> {
           for (final column in _columns) column.title.text.trim(),
         ],
         logoBytes: logoBytes,
+        watermarkBytes: watermarkBytes,
+        company: company,
       );
       final filePath = await saveExportedDocument(
         name: _reference.text,
@@ -205,6 +212,12 @@ class _BoqGeneratorPageState extends State<BoqGeneratorPage> {
             key: _form,
             child: Column(
               children: [
+                CompanyBrandSelector(
+                  value: _companyBrand,
+                  enabled: !_busy,
+                  onChanged: (brand) => setState(() => _companyBrand = brand),
+                ),
+                const SizedBox(height: 10),
                 _metadataField(_projectTitle, 'Project title', required: true),
                 _metadataField(_client, 'Client name / organization',
                     required: true),
